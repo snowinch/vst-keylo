@@ -1,0 +1,19 @@
+build/
+CLAUDE.md
+
+# ML pipeline — audio data and model checkpoints are large/binary
+ml/dataset/
+ml/models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# macOS
+.DS_Store

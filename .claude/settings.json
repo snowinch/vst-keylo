@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); path=$(echo \"$input\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['tool_input'].get('file_path') or d['tool_input'].get('pattern',''))\"); if echo \"$path\" | grep -q 'ml/dataset'; then echo '{\"decision\":\"block\",\"reason\":\"ml/dataset/ is gitignored audio data — not for Claude context\"}'; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

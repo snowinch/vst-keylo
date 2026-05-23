@@ -1,0 +1,24 @@
+# Core ML
+torch>=2.12.0
+torchaudio>=2.11.0
+onnx>=1.21.0
+onnxruntime>=1.26.0
+
+# Audio
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Data
+numpy>=1.26.0
+pandas>=2.2.0
+scikit-learn>=1.4.0
+
+# Download
+yt-dlp>=2024.5.0
+
+# Eval
+mir_eval>=0.7.0
+
+# Utils
+tqdm>=4.66.0
+pyyaml>=6.0.0
