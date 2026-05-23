@@ -534,31 +534,62 @@ void KeyloAudioProcessorEditor::drawBpmStrip(juce::Graphics& g)
     g.setColour(K::Border);
     g.drawHorizontalLine(K::kBpmY, (float)K::kPad, (float)(K::W - K::kPad));
 
-    // BPM left
+    // BPM left — bold, white
     if (cachedResult.bpm > 0.f)
     {
-        juce::String bpmStr = juce::String(cachedResult.bpm, 1) + " bpm";
-        g.setColour(K::TextSec);
-        g.setFont(uiFont(11.f, false));
-        g.drawText(bpmStr, inner.withWidth(inner.getWidth() * 0.4f).toNearestInt(),
+        juce::String bpmStr = juce::String(juce::roundToInt(cachedResult.bpm)) + " bpm";
+        g.setColour(K::TextPri);
+        g.setFont(uiFont(13.f, true));
+        g.drawText(bpmStr, inner.withWidth(inner.getWidth() * 0.32f).toNearestInt(),
                    juce::Justification::centredLeft, false);
     }
 
-    // Confidence bar + label right
+    // Confidence bar + label — wider, starts at 32% from left
     float conf = juce::jlimit(0.f, 1.f, cachedResult.confidence);
     int confPct = (int)std::round(conf * 100.f);
     juce::String confStr = juce::String(confPct) + "%";
 
-    // Right portion
-    auto rightArea = inner.withTrimmedLeft(inner.getWidth() * 0.45f);
-    // Confidence label
+    auto rightArea = inner.withTrimmedLeft(inner.getWidth() * 0.32f);
     g.setColour(K::TextSec);
     g.setFont(uiFont(9.f, false));
-    g.drawText(confStr, rightArea.removeFromRight(32.f).toNearestInt(),
+    g.drawText(confStr, rightArea.removeFromRight(30.f).toNearestInt(),
                juce::Justification::centredRight, false);
-    // Bar
-    auto barArea = rightArea.reduced(0.f, 10.f);
+    auto barArea = rightArea.reduced(0.f, 11.f);
     drawProgressBar(g, barArea, conf);
+}
+
+// ── Draw: algorithm weight bar ────────────────────────────────────────────────
+void KeyloAudioProcessorEditor::drawAlgoBar(juce::Graphics& g)
+{
+    if (cachedState != AnalyserState::Ready) return;
+
+    float w    = (float)(K::W - K::kPad * 2);
+    float x    = (float)K::kPad;
+    float y    = (float)K::kAlgY + (float)K::kAlgH * 0.5f - 1.f;
+    float h    = 2.f;
+    float r    = h * 0.5f;
+
+    float skeyW = juce::jlimit (0.f, 1.f, cachedResult.skeyWeight);
+    float tsaW  = 1.f - skeyW;
+
+    // Background (full bar, dim)
+    g.setColour (K::Border);
+    g.fillRoundedRectangle (x, y, w, h, r);
+
+    // TSA portion (teal, left)
+    if (tsaW > 0.001f)
+    {
+        g.setColour (K::Teal);
+        g.fillRoundedRectangle (x, y, w * tsaW, h, r);
+    }
+
+    // S-KEY portion (violet, right)
+    if (skeyW > 0.001f)
+    {
+        float sx = x + w * tsaW;
+        g.setColour (K::Accent);
+        g.fillRoundedRectangle (sx, y, w * skeyW, h, r);
+    }
 }
 
 // ── Draw: alternatives row ────────────────────────────────────────────────────
@@ -640,5 +671,6 @@ void KeyloAudioProcessorEditor::paint(juce::Graphics& g)
     drawHero(g);
     drawBpmStrip(g);
     drawAltRow(g);
+    drawAlgoBar(g);
     drawFooter(g);
 }

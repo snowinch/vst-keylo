@@ -1,100 +1,134 @@
-# Keylo ML — S-KEY / ChromaNet Pipeline
+# Keylo ML — S-KEY Fine-tuning Pipeline
 
-Key detection model for trap / typebeat audio. Fine-tunes a ChromaNet-style
-self-supervised CNN on trap instrumentals, exports to ONNX for C++ integration.
+Key detection model for trap/typebeat audio. Fine-tunes Deezer S-KEY (ChromaNet pre-trained on EDM) on a labeled trap dataset, exports to ONNX for integration in the Keylo VST plugin.
+
+---
+
+## Pipeline
+
+### 1. Dataset download
+
+Search YouTube for typebeat audio via yt-dlp. Filters: duration 90–210s, title must contain "type beat", excludes tutorials.
+
+```bash
+cd ml && source .venv/bin/activate
+python training/01_download.py --per-query 100
+```
+
+Output: `ml/dataset/typebeats/<video-id>-<title>.wav`
+Dedup: `ml/dataset/downloaded.txt` — re-run anytime, already-downloaded files are skipped.
+
+Result: ~1200 WAV files across 35 search queries (trap, drill, rnb, afrobeat, artist type beats, ecc.)
+
+---
+
+### 2. Labeling with Essentia edma
+
+Key labels generated with `KeyExtractor(profileType="edma")` — Essentia's EDM-tuned profile, ~84% accuracy. No manual labeling needed.
+
+Priority per file:
+1. Key parsed from filename (e.g. `"Dm trap type beat"` → D minor), confidence = 1.0
+2. Essentia edma prediction, confidence = strength value (0–1)
+
+Files with confidence < 0.6 removed from dataset (audio + CSV).
+
+```bash
+python training/02_prelabel.py 2>/dev/null
+```
+
+Output: `ml/dataset/typebeats/labels.csv`
+Result: 1182 labeled files (39 from filename, 1143 from edma model)
+
+---
+
+### 3. Fine-tune S-KEY
+
+S-KEY (Deezer, MIT license) is a ConvNeXt-based ChromaNet pre-trained self-supervised on EDM. Checkpoint: `ml/skey/skey/models/skey.pt`.
+
+Fine-tuning strategy:
+- VQT (feature extractor) frozen
+- ChromaNet only trained, supervised cross-entropy on edma labels
+- Val split 15%, CosineAnnealingLR, AdamW lr=1e-4
+
+```bash
+python training/04_finetune_skey.py --epochs 30
+```
+
+Output: `ml/models/skey_finetuned.pt` (same format as skey.pt)
+
+---
+
+### 4. Validate
+
+```bash
+# Via S-KEY CLI on test loops
+cd ml/skey
+poetry run skey /path/to/Assets/test-loops --device mps \
+    --checkpoint ../models/skey_finetuned.pt
+
+# Or via script
+python training/05_validate.py
+```
+
+**Gate:** only proceed to ONNX export if fine-tuned model beats base S-KEY on test loops.
+
+---
+
+### 5. Export ONNX
+
+```bash
+python training/05_export_onnx.py
+```
+
+Output: `ml/models/skey_int8.onnx` — target < 8MB, < 200ms on modern CPU for 12s audio.
+
+---
 
 ## Setup
 
 ```bash
 cd ml
-python -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install torchcodec
+
+# Clone S-KEY
+git clone https://github.com/deezer/skey
+cd skey && pip install poetry && poetry lock && poetry install && cd ..
 ```
 
-## Pipeline (run in order)
+---
 
-### 1. Download dataset
-```bash
-python training/01_download.py --per-query 30
-# Dry-run preview:
-python training/01_download.py --dry-run
-# Re-run anytime — already-downloaded videos are skipped via archive index
-```
-Output: `ml/dataset/typebeats/*.wav`. Dedup index: `ml/dataset/downloaded.txt`.
+## Key class mapping
 
-### 2. Pre-label
-```bash
-python training/02_prelabel.py
-```
-Priority: filename key info → existing model → KK chroma baseline.
-Output: `ml/dataset/labels.csv` + `labels_review.csv` (low-confidence files to verify manually).
+| System | C | C# | D | ... | A | A# | B |
+|--------|---|----|---|-----|---|----|---|
+| Ours (major) | 0 | 1 | 2 | ... | 9 | 10 | 11 |
+| Ours (minor) | 12 | 13 | 14 | ... | 21 | 22 | 23 |
+| S-KEY (major) | 3 | 4 | 5 | ... | 0 | 1 | 2 |
+| S-KEY (minor) | 13 | 14 | 15 | ... | 22 | 23 | 12 |
 
-**Manual review step**: open `labels_review.csv`, listen to each file, correct key column.
-
-### 3. Fine-tune
-```bash
-python training/03_finetune.py \
-    --pretrain-epochs 20 \
-    --finetune-epochs 50 \
-    --min-conf 0.6
-```
-Phase A: self-supervised (pitch-shift equivariance, no labels required).
-Phase B: supervised on verified labels.
-Output: `ml/models/chromanet_best.pt`
-
-### 4. Export ONNX
-```bash
-python training/04_export_onnx.py --validate
-```
-Output: `ml/models/chromanet_int8.onnx` (deploy this in the plugin).
-
-### 5. Validate
-```bash
-python training/05_validate.py
-```
-Compares model vs TSA baseline on the 9 test loops. **Do not proceed to C++
-integration until model beats TSA accuracy.**
-
-## Decision gate
-
-| Model accuracy (9 loops) | Action |
-|---|---|
-| < 7/9 | More data, longer training, review labels |
-| = 7/9 | Parity — add more test loops before deciding |
-| > 7/9 | Proceed to ONNX integration in Keylo |
-
-## Architecture
-
-- Input: CQT spectrogram [1, 84, T] — 84 bins (C1–B7), hop 512 @ 22050Hz
-- Model: 3-layer CNN + FC head → 24-class softmax (12 major + 12 minor)
-- Training: pitch-shift equivariance pre-train → supervised fine-tune
-- Export: ONNX opset 17 → int8 dynamic quantization
-
-## Key classes
-
-```
-0=C maj, 1=C# maj, ..., 11=B maj
-12=C min, 13=C# min, ..., 23=B min
-```
+---
 
 ## File layout
 
 ```
 ml/
 ├── requirements.txt
-├── dataset/               # gitignored — audio files
-│   ├── labels.csv         # auto-generated labels
-│   └── labels_review.csv  # low-confidence → review manually
-├── models/                # gitignored — checkpoints + ONNX
-│   ├── chromanet_best.pt
-│   └── chromanet_int8.onnx
+├── dataset/
+│   ├── typebeats/          # gitignored — 1182 WAV files
+│   │   ├── labels.csv      # edma labels
+│   │   └── labels_review.csv
+│   └── downloaded.txt      # yt-dlp dedup archive
+├── models/                 # gitignored
+│   └── skey_finetuned.pt
+├── skey/                   # gitignored — Deezer S-KEY repo
 └── training/
-    ├── channels.yaml      # YouTube sources config
-    ├── audio_utils.py     # CQT extraction, label parsing
-    ├── chromanet.py       # Model architecture + losses
+    ├── audio_utils.py
+    ├── chromanet.py        # our custom ChromaNet (unused after adopting S-KEY)
     ├── 01_download.py
-    ├── 02_prelabel.py
-    ├── 03_finetune.py
-    ├── 04_export_onnx.py
+    ├── 02_prelabel.py      # Essentia edma labeling
+    ├── 03_finetune.py      # our ChromaNet fine-tune (superseded)
+    ├── 04_finetune_skey.py # S-KEY fine-tune ← use this
     └── 05_validate.py
 ```

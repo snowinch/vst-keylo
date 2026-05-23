@@ -4,27 +4,30 @@
 
 namespace K {
     static constexpr int W = 380;
-    static constexpr int H = 310;
+    static constexpr int H = 322;
 
     static constexpr int kPad     = 16;
     static constexpr int kHeaderH = 34;
     static constexpr int kHeroH   = 170;
     static constexpr int kBpmH    = 40;
     static constexpr int kAltH    = 30;
+    static constexpr int kAlgH    = 12;   // algorithm weight bar section
     static constexpr int kFootH   = 36;
     // derived y positions — must sum to H
     static constexpr int kHeroY   = kHeaderH;
     static constexpr int kBpmY    = kHeroY + kHeroH;
     static constexpr int kAltY    = kBpmY  + kBpmH;
-    static constexpr int kFootY   = kAltY  + kAltH;
+    static constexpr int kAlgY    = kAltY  + kAltH;
+    static constexpr int kFootY   = kAlgY  + kAlgH;
 
     // Palette
     static const juce::Colour Bg      (0xFF090909u);
     static const juce::Colour Surface (0xFF111115u);
     static const juce::Colour Border  (0xFF1E1E24u);
-    static const juce::Colour Accent  (0xFF6B67F0u);
+    static const juce::Colour Accent  (0xFF6B67F0u);   // violet — S-KEY
     static const juce::Colour AccentDim(0xFF3A3880u);
     static const juce::Colour Green   (0xFF3DD68Cu);
+    static const juce::Colour Teal    (0xFF2DCFB3u);   // teal — TSA proprietary
     static const juce::Colour TextPri (0xFFF0F0F3u);
     static const juce::Colour TextSec (0xFF72727Cu);
     static const juce::Colour TextDim (0xFF3A3A42u);
@@ -54,6 +57,7 @@ private:
     void drawHero(juce::Graphics&);
     void drawBpmStrip(juce::Graphics&);
     void drawAltRow(juce::Graphics&);
+    void drawAlgoBar(juce::Graphics&);
     void drawFooter(juce::Graphics&);
     void drawControlPills(juce::Graphics&);
     void drawStabilityTimeline(juce::Graphics&);

@@ -1,4 +1,5 @@
 #include "Analyser.h"
+#include <BinaryData.h>
 #include <cmath>
 #include <algorithm>
 #include <cstring>
@@ -47,7 +48,11 @@ struct AnalyserWorker : public juce::Thread
 };
 
 // ── Analyser ─────────────────────────────────────────────────────────────────
-Analyser::Analyser()  = default;
+Analyser::Analyser()
+{
+    skey = std::make_unique<SkeyInference> (
+        BinaryData::skey_onnx, (size_t) BinaryData::skey_onnxSize);
+}
 Analyser::~Analyser() { if (worker) worker->stopThread(1000); }
 
 void Analyser::prepare(double sampleRate, int /*blockSize*/)
@@ -326,6 +331,84 @@ void Analyser::runAnalysis()
                g, top3, &r.stabilityTimeline, nullptr, im);
     r.alt1    = top3[1];
     r.alt2    = top3[2];
+
+    // ── S-KEY ONNX fusion ─────────────────────────────────────────────────
+    // TSA gives root 0-11 + detailed mode; S-KEY gives root 0-11 + major/minor.
+    // If they agree on root  → keep TSA (more mode detail), raise confidence.
+    // If they disagree       → trust S-KEY (better on test set), use its root
+    //                          with NaturalMinor / Major, lower confidence.
+    // ── Debug: write S-KEY state to /tmp/keylo_debug.txt ─────────────────────
+    {
+        FILE* f = fopen ("/tmp/keylo_debug.txt", "w");
+        if (f) {
+            fprintf (f, "skey ptr:    %s\n", skey ? "ok" : "null");
+            fprintf (f, "skey loaded: %s\n", (skey && skey->isLoaded()) ? "yes" : "NO");
+            fprintf (f, "snapSr:      %.1f\n", snapSr);
+            fprintf (f, "n samples:   %d\n", n);
+            fprintf (f, "TSA key:     %d  mode: %d  conf: %.3f\n", r.key, (int)r.mode, r.confidence);
+            fclose (f);
+        }
+    }
+
+    if (skey && skey->isLoaded())
+    {
+        // Split 12s buffer into two 6s windows, run S-KEY on each.
+        // If roots agree  → high confidence (averaged).
+        // If roots differ → use the higher-confidence window, penalised.
+        constexpr double kWinSecs = 6.0;
+        int winSamples = (int)(kWinSecs * snapSr);
+
+        int n1 = std::min (n, winSamples);
+        SkeyResult res1 = skey->predict (linear.data(), n1, snapSr);
+
+        SkeyResult res2 {};
+        if (n > winSamples)
+            res2 = skey->predict (linear.data() + winSamples, n - winSamples, snapSr);
+
+        // Pick final result
+        SkeyResult skeyFinal {};
+        if (res1.root >= 0 && res2.root >= 0)
+        {
+            if (res1.root == res2.root && res1.isMinor == res2.isMinor)
+            {
+                // Both windows agree — strong signal
+                skeyFinal.root       = res1.root;
+                skeyFinal.isMinor    = res1.isMinor;
+                skeyFinal.confidence = (res1.confidence + res2.confidence) * 0.5f * 1.2f; // boost
+                skeyFinal.confidence = std::min (skeyFinal.confidence, 1.0f);
+            }
+            else
+            {
+                // Windows disagree — take higher confidence, penalise
+                const SkeyResult& best = (res1.confidence >= res2.confidence) ? res1 : res2;
+                skeyFinal.root       = best.root;
+                skeyFinal.isMinor    = best.isMinor;
+                skeyFinal.confidence = best.confidence * 0.65f;
+            }
+        }
+        else if (res1.root >= 0)
+        {
+            skeyFinal = res1;
+        }
+
+        if (skeyFinal.root >= 0)
+        {
+            r.key        = skeyFinal.root;
+            r.mode       = skeyFinal.isMinor ? Mode::NaturalMinor : Mode::Major;
+            r.confidence = skeyFinal.confidence;
+            r.skeyWeight = 1.0f;  // S-KEY drove the result
+        }
+
+        // Append S-KEY result to debug file
+        FILE* f = fopen ("/tmp/keylo_debug.txt", "a");
+        if (f) {
+            fprintf (f, "res1:  root=%d  minor=%d  conf=%.3f\n", res1.root, (int)res1.isMinor, res1.confidence);
+            fprintf (f, "res2:  root=%d  minor=%d  conf=%.3f\n", res2.root, (int)res2.isMinor, res2.confidence);
+            fprintf (f, "final: root=%d  minor=%d  conf=%.3f\n", skeyFinal.root, (int)skeyFinal.isMinor, skeyFinal.confidence);
+            fclose (f);
+        }
+    }
+
     r.camelot = camelotKey(r.key, r.mode);
 
     { juce::SpinLock::ScopedLockType lk(resultLock); result = r; }

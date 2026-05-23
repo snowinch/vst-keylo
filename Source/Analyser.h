@@ -6,6 +6,7 @@
 #include "DSP/BPMDetector.h"
 #include "DSP/KeyDetector.h"
 #include "DSP/PitchDetector.h"
+#include "DSP/SkeyInference.h"
 
 // ── Result ────────────────────────────────────────────────────────────────────
 struct AnalysisResult
@@ -25,6 +26,9 @@ struct AnalysisResult
 
     // Per-segment Pearson scores [0..1] — 16 elements when available
     std::vector<float> stabilityTimeline {};
+
+    // Algorithm weight: 0 = pure TSA, 1 = pure S-KEY (for UI bar)
+    float skeyWeight { 0.f };
 
     static const char* noteName(int n);
     std::string keyString()  const;
@@ -110,5 +114,6 @@ private:
     mutable juce::SpinLock resultLock;
     AnalysisResult result;
 
-    std::unique_ptr<juce::Thread> worker;
+    std::unique_ptr<juce::Thread>    worker;
+    std::unique_ptr<SkeyInference>   skey;
 };

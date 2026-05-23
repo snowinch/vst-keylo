@@ -78,6 +78,36 @@ target_include_directories(aubio_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/aubi
 target_compile_definitions(aubio_static PRIVATE HAVE_CONFIG_H)
 target_compile_options(aubio_static PRIVATE -w)  # suppress aubio warnings
 
+# ── ONNX Runtime ─────────────────────────────────────────────────────────────
+# Supported via Homebrew on macOS (brew install onnxruntime).
+# On other platforms: set ORT_ROOT to the prebuilt SDK directory.
+if(NOT DEFINED ORT_ROOT)
+    foreach(prefix /opt/homebrew /usr/local)
+        if(EXISTS "${prefix}/opt/onnxruntime")
+            set(ORT_ROOT "${prefix}/opt/onnxruntime")
+            break()
+        endif()
+    endforeach()
+endif()
+
+find_library(ORT_LIB onnxruntime
+    HINTS "${ORT_ROOT}/lib" /opt/homebrew/lib /usr/local/lib
+    REQUIRED)
+
+find_path(ORT_INCLUDE onnxruntime_cxx_api.h
+    HINTS
+        "${ORT_ROOT}/include/onnxruntime/core/session"
+        "${ORT_ROOT}/include/onnxruntime"
+        /opt/homebrew/include/onnxruntime/core/session
+        /opt/homebrew/include/onnxruntime
+        /opt/homebrew/Cellar/onnxruntime/1.26.0_1/include/onnxruntime
+        /usr/local/include/onnxruntime/core/session
+        /usr/local/include/onnxruntime
+    REQUIRED)
+
+message(STATUS "ONNX Runtime lib:     ${ORT_LIB}")
+message(STATUS "ONNX Runtime include: ${ORT_INCLUDE}")
+
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Keylo
     PLUGIN_NAME             "Keylo"
@@ -99,9 +129,10 @@ juce_add_plugin(Keylo
 
 juce_generate_juce_header(Keylo)
 
-# ── Embedded assets (fonts) ──────────────────────────────────────────────────
+# ── Embedded assets (fonts + ONNX model) ─────────────────────────────────────
 juce_add_binary_data(KeyloAssets SOURCES
     Assets/fonts/Panchang-Bold.ttf
+    Assets/skey.onnx
 )
 set_target_properties(KeyloAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
@@ -112,9 +143,10 @@ target_sources(Keylo PRIVATE
     Source/DSP/BPMDetector.cpp
     Source/DSP/KeyDetector.cpp
     Source/DSP/PitchDetector.cpp
+    Source/DSP/SkeyInference.cpp
 )
 
-target_include_directories(Keylo PRIVATE Source ${AUBIO_SRC_DIR})
+target_include_directories(Keylo PRIVATE Source ${AUBIO_SRC_DIR} ${ORT_INCLUDE})
 
 target_compile_definitions(Keylo PUBLIC
     JUCE_WEB_BROWSER=0
@@ -126,6 +158,7 @@ target_compile_definitions(Keylo PUBLIC
 target_link_libraries(Keylo PRIVATE
     aubio_static
     KeyloAssets
+    ${ORT_LIB}
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
