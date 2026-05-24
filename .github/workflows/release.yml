@@ -1,0 +1,124 @@
+name: Build Keylo
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # ── macOS (Apple Silicon arm64) ──────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install ONNX Runtime
+        run: brew install onnxruntime
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Bundle ORT dylib + sign
+        run: |
+          ORT_REAL=$(realpath /opt/homebrew/opt/onnxruntime/lib/libonnxruntime.1.dylib)
+          ORT_LINK=/opt/homebrew/opt/onnxruntime/lib/libonnxruntime.1.dylib
+          VST3="build/Keylo_artefacts/Release/VST3/Keylo.vst3"
+          AU="build/Keylo_artefacts/Release/AU/Keylo.component"
+
+          mkdir -p "$VST3/Contents/Frameworks" "$AU/Contents/Frameworks"
+          cp "$ORT_REAL" "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
+          cp "$ORT_REAL" "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
+
+          install_name_tool -change "$ORT_LINK" \
+            @loader_path/../Frameworks/libonnxruntime.1.dylib \
+            "$VST3/Contents/MacOS/Keylo"
+          install_name_tool -change "$ORT_LINK" \
+            @loader_path/../Frameworks/libonnxruntime.1.dylib \
+            "$AU/Contents/MacOS/Keylo"
+
+          codesign --force --sign - "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
+          codesign --force --sign - "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
+          codesign --force --sign - "$VST3/Contents/MacOS/Keylo"
+          codesign --force --sign - "$AU/Contents/MacOS/Keylo"
+          codesign --force --sign - "$VST3"
+          codesign --force --sign - "$AU"
+
+      - name: Package
+        run: |
+          mkdir release
+          cp -r build/Keylo_artefacts/Release/VST3/Keylo.vst3 release/
+          cp -r build/Keylo_artefacts/Release/AU/Keylo.component release/
+          ditto -c -k --sequesterRsrc --keepParent release Keylo-${{ github.ref_name }}-macOS-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Keylo-macOS-arm64
+          path: Keylo-*-macOS-arm64.zip
+
+  # ── Windows (x64) ────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download ONNX Runtime (Windows x64)
+        shell: pwsh
+        run: |
+          $ver = "1.19.2"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-$ver.zip"
+          Invoke-WebRequest -Uri $url -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath .
+          Rename-Item "onnxruntime-win-x64-$ver" "ort"
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DORT_ROOT=${{ github.workspace }}/ort"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Bundle ORT DLL
+        shell: pwsh
+        run: |
+          $windir = "build\Keylo_artefacts\Release\VST3\Keylo.vst3\Contents\x86_64-win"
+          Copy-Item "ort\lib\onnxruntime.dll" $windir
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $src = "build\Keylo_artefacts\Release\VST3\Keylo.vst3"
+          $name = "Keylo-${{ github.ref_name }}-Windows-x64.zip"
+          Compress-Archive -Path $src -DestinationPath $name
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Keylo-Windows-x64
+          path: Keylo-*-Windows-x64.zip
+
+  # ── GitHub Release (only on tag push) ────────────────────────────────────────
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Keylo-*-macOS-arm64.zip
+            Keylo-*-Windows-x64.zip
+          generate_release_notes: true

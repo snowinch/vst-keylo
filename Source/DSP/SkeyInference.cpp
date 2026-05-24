@@ -83,18 +83,8 @@ SkeyInference::SkeyInference (const void* modelData, size_t modelSize)
         m_impl  = std::make_unique<Impl> (modelData, modelSize);
         m_loaded = true;
     }
-    catch (const std::exception& e)
-    {
-        FILE* f = fopen ("/tmp/keylo_ort_error.txt", "w");
-        if (f) { fprintf (f, "ORT init error: %s\n", e.what()); fclose (f); }
-        m_loaded = false;
-    }
-    catch (...)
-    {
-        FILE* f = fopen ("/tmp/keylo_ort_error.txt", "w");
-        if (f) { fprintf (f, "ORT init error: unknown exception\n"); fclose (f); }
-        m_loaded = false;
-    }
+    catch (const std::exception&) { m_loaded = false; }
+    catch (...)                   { m_loaded = false; }
 }
 
 SkeyInference::~SkeyInference() = default;

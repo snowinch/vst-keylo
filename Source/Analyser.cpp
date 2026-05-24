@@ -78,6 +78,7 @@ void Analyser::prepare(double sampleRate, int /*blockSize*/)
     state.store((int)AnalyserState::Idle);
     pendingAutoStart.store(false);
     readyPaused.store(false);
+    readySilenceFrames.store(0);
     { juce::SpinLock::ScopedLockType lk(resultLock); result = {}; }
 }
 
@@ -97,6 +98,7 @@ void Analyser::reset()
     rtBpmDet.prepare(sr, kHop);
     levelDB.store(-96.f);
     readyPaused.store(false);
+    readySilenceFrames.store(0);
 
     {
         juce::SpinLock::ScopedLockType lk(resultLock);
@@ -118,6 +120,7 @@ void Analyser::startCollecting()
     rtAccumPos = 0;
     rtBpmDet.reset();
     rtBpmDet.prepare(sr, kHop);
+    readySilenceFrames.store(0);
     {
         juce::SpinLock::ScopedLockType lk(resultLock);
         result = {};
@@ -165,13 +168,22 @@ void Analyser::pushBuffer(const juce::AudioBuffer<float>& buffer)
     else if (st == AnalyserState::Ready)
     {
         if (lvl <= kAutoStartDB)
-            readyPaused.store(true);           // silence gap observed
-        else if (readyPaused.load())
         {
-            pendingAutoStart.store(true);      // audio back after silence → resume
-            readyPaused.store(false);
+            // Accumulate silence samples — only set readyPaused after ≥2 s sustained silence.
+            // This prevents beat gaps / brief quiet moments from triggering a restart.
+            int accumulated = readySilenceFrames.fetch_add(numSamples) + numSamples;
+            if (accumulated >= (int)(sr * 2.0))
+                readyPaused.store(true);
         }
-        // else: audio still playing after analysis → keep showing result, do nothing
+        else
+        {
+            readySilenceFrames.store(0);       // reset on any audible buffer
+            if (readyPaused.load())
+            {
+                pendingAutoStart.store(true);  // audio back after real silence → resume
+                readyPaused.store(false);
+            }
+        }
     }
 
     if (state.load() != (int)AnalyserState::Collecting) return;
@@ -329,6 +341,11 @@ void Analyser::runAnalysis()
     key.getKey(r.key, r.mode, r.confidence,
                r.bpm, pit.getRootNote(), pit.getPitchConfidence(),
                g, top3, &r.stabilityTimeline, nullptr, im);
+
+    // Save TSA result before S-KEY may override
+    int  tsaKey  = r.key;
+    Mode tsaMode = r.mode;
+
     r.alt1    = top3[1];
     r.alt2    = top3[2];
 
@@ -337,19 +354,6 @@ void Analyser::runAnalysis()
     // If they agree on root  → keep TSA (more mode detail), raise confidence.
     // If they disagree       → trust S-KEY (better on test set), use its root
     //                          with NaturalMinor / Major, lower confidence.
-    // ── Debug: write S-KEY state to /tmp/keylo_debug.txt ─────────────────────
-    {
-        FILE* f = fopen ("/tmp/keylo_debug.txt", "w");
-        if (f) {
-            fprintf (f, "skey ptr:    %s\n", skey ? "ok" : "null");
-            fprintf (f, "skey loaded: %s\n", (skey && skey->isLoaded()) ? "yes" : "NO");
-            fprintf (f, "snapSr:      %.1f\n", snapSr);
-            fprintf (f, "n samples:   %d\n", n);
-            fprintf (f, "TSA key:     %d  mode: %d  conf: %.3f\n", r.key, (int)r.mode, r.confidence);
-            fclose (f);
-        }
-    }
-
     if (skey && skey->isLoaded())
     {
         // Split 12s buffer into two 6s windows, run S-KEY on each.
@@ -393,19 +397,55 @@ void Analyser::runAnalysis()
 
         if (skeyFinal.root >= 0)
         {
-            r.key        = skeyFinal.root;
-            r.mode       = skeyFinal.isMinor ? Mode::NaturalMinor : Mode::Major;
-            r.confidence = skeyFinal.confidence;
-            r.skeyWeight = 1.0f;  // S-KEY drove the result
+            bool tsaValid   = (r.key >= 0);
+            bool rootsAgree = tsaValid && (r.key == skeyFinal.root);
+
+            if (rootsAgree)
+            {
+                // TSA + S-KEY agree on root → keep TSA mode (richer), boost confidence
+                // r.key and r.mode already set by TSA — preserve them
+                r.confidence = std::min (1.f,
+                    std::max (r.confidence, skeyFinal.confidence) * 1.15f);
+                r.skeyWeight = 0.35f;   // TSA majority, S-KEY confirmed
+            }
+            else
+            {
+                // Disagree → S-KEY wins (better empirically), penalise
+                r.key        = skeyFinal.root;
+                r.mode       = skeyFinal.isMinor ? Mode::NaturalMinor : Mode::Major;
+                r.confidence = skeyFinal.confidence * 0.75f;
+                r.skeyWeight = 0.85f;   // S-KEY dominant
+            }
         }
 
-        // Append S-KEY result to debug file
-        FILE* f = fopen ("/tmp/keylo_debug.txt", "a");
-        if (f) {
-            fprintf (f, "res1:  root=%d  minor=%d  conf=%.3f\n", res1.root, (int)res1.isMinor, res1.confidence);
-            fprintf (f, "res2:  root=%d  minor=%d  conf=%.3f\n", res2.root, (int)res2.isMinor, res2.confidence);
-            fprintf (f, "final: root=%d  minor=%d  conf=%.3f\n", skeyFinal.root, (int)skeyFinal.isMinor, skeyFinal.confidence);
-            fclose (f);
+    }
+
+    // ── Alternative keys ──────────────────────────────────────────────────────
+    // Replaces TSA top-3 with musically meaningful alternatives.
+    auto relativeKey = [](int root, Mode mode) -> KeyCandidate {
+        bool isMaj = (mode == Mode::Major || mode == Mode::Mixolydian);
+        return { isMaj ? (root + 9) % 12 : (root + 3) % 12,
+                 isMaj ? Mode::NaturalMinor : Mode::Major, 0.f };
+    };
+    auto subdominantKey = [](int root, Mode mode) -> KeyCandidate {
+        // Perfect 4th up — captures real tonic when detector landed on the 5th
+        // e.g. detected G#m → subdominant = C#m (correct tonic in many trap loops)
+        return { (root + 5) % 12, mode, 0.f };
+    };
+
+    if (r.key >= 0)
+    {
+        if (r.skeyWeight >= 0.8f)
+        {
+            // S-KEY won over TSA disagreement → TSA as second opinion, subdominant as third
+            r.alt1 = { tsaKey, tsaMode, top3[0].score };
+            r.alt2 = subdominantKey (r.key, r.mode);
+        }
+        else
+        {
+            // Both agreed → relative + subdominant (4th above)
+            r.alt1 = relativeKey    (r.key, r.mode);
+            r.alt2 = subdominantKey (r.key, r.mode);
         }
     }
 

@@ -4,21 +4,19 @@
 
 namespace K {
     static constexpr int W = 380;
-    static constexpr int H = 322;
+    static constexpr int H = 310;
 
     static constexpr int kPad     = 16;
     static constexpr int kHeaderH = 34;
     static constexpr int kHeroH   = 170;
     static constexpr int kBpmH    = 40;
     static constexpr int kAltH    = 30;
-    static constexpr int kAlgH    = 12;   // algorithm weight bar section
     static constexpr int kFootH   = 36;
     // derived y positions — must sum to H
     static constexpr int kHeroY   = kHeaderH;
     static constexpr int kBpmY    = kHeroY + kHeroH;
     static constexpr int kAltY    = kBpmY  + kBpmH;
-    static constexpr int kAlgY    = kAltY  + kAltH;
-    static constexpr int kFootY   = kAlgY  + kAlgH;
+    static constexpr int kFootY   = kAltY  + kAltH;
 
     // Palette
     static const juce::Colour Bg      (0xFF090909u);

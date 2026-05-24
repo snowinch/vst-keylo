@@ -95,7 +95,8 @@ private:
     std::atomic<int>   currentGenre     { (int)GenreProfile::Modern };
     std::atomic<int>   currentInputMode { (int)InputMode::Loop };
     std::atomic<bool>  camelotDisplay   { false };
-    std::atomic<bool>  readyPaused      { false }; // true after silence gap in Ready state
+    std::atomic<bool>  readyPaused      { false }; // true after sustained silence in Ready state
+    std::atomic<int>   readySilenceFrames { 0 };   // consecutive below-threshold buffers in Ready
 
     static constexpr int kMaxSeconds = 14;
     static constexpr int kHop = 512;

@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
-project(KeyloVST VERSION 0.1.0)
+project(KeyloVST VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+endif()
 
 # ── JUCE ──────────────────────────────────────────────────────────────────────
 add_subdirectory(JUCE)
@@ -76,11 +78,16 @@ target_include_directories(aubio_static PUBLIC  ${AUBIO_SRC_DIR})
 target_include_directories(aubio_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/aubio_gen)
 # aubio internally uses HAVE_CONFIG_H to include config.h
 target_compile_definitions(aubio_static PRIVATE HAVE_CONFIG_H)
-target_compile_options(aubio_static PRIVATE -w)  # suppress aubio warnings
+if(MSVC)
+    target_compile_options(aubio_static PRIVATE /W0 /D_CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(aubio_static PRIVATE -w)
+endif()
 
 # ── ONNX Runtime ─────────────────────────────────────────────────────────────
-# Supported via Homebrew on macOS (brew install onnxruntime).
-# On other platforms: set ORT_ROOT to the prebuilt SDK directory.
+# macOS:   brew install onnxruntime  (auto-detected)
+# Windows: pass -DORT_ROOT=<path to prebuilt SDK> to cmake
+# Linux:   pass -DORT_ROOT=<path to prebuilt SDK> to cmake
 if(NOT DEFINED ORT_ROOT)
     foreach(prefix /opt/homebrew /usr/local)
         if(EXISTS "${prefix}/opt/onnxruntime")
@@ -96,6 +103,7 @@ find_library(ORT_LIB onnxruntime
 
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h
     HINTS
+        "${ORT_ROOT}/include"                              # Windows prebuilt
         "${ORT_ROOT}/include/onnxruntime/core/session"
         "${ORT_ROOT}/include/onnxruntime"
         /opt/homebrew/include/onnxruntime/core/session
@@ -185,4 +193,8 @@ add_executable(KeyloTest
 )
 target_include_directories(KeyloTest PRIVATE Source ${AUBIO_SRC_DIR})
 target_link_libraries(KeyloTest PRIVATE aubio_static)
-target_compile_options(KeyloTest PRIVATE -O2)
+if(MSVC)
+    target_compile_options(KeyloTest PRIVATE /O2 /D_CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(KeyloTest PRIVATE -O2)
+endif()
