@@ -50,13 +50,35 @@ jobs:
           codesign --force --sign - "$VST3"
           codesign --force --sign - "$AU"
 
-      - name: Package
+      - name: Build macOS .pkg installer
         run: |
+          VERSION="${{ github.ref_name }}"
+          VER="${VERSION#v}"
+
+          # Single root with both plugins
+          mkdir -p pkg-root/Library/Audio/Plug-Ins/VST3
+          mkdir -p pkg-root/Library/Audio/Plug-Ins/Components
+          cp -r build/Keylo_artefacts/Release/VST3/Keylo.vst3 \
+                pkg-root/Library/Audio/Plug-Ins/VST3/
+          cp -r build/Keylo_artefacts/Release/AU/Keylo.component \
+                pkg-root/Library/Audio/Plug-Ins/Components/
+
+          pkgbuild \
+            --root pkg-root \
+            --identifier com.snowinch.keylo \
+            --version "$VER" \
+            --install-location / \
+            "Keylo-${VERSION}-macOS-arm64.pkg"
+
+      - name: Package macOS ZIP
+        run: |
+          VERSION="${{ github.ref_name }}"
           mkdir release
-          cp -r build/Keylo_artefacts/Release/VST3/Keylo.vst3 release/
-          cp -r build/Keylo_artefacts/Release/AU/Keylo.component release/
+          cp "Keylo-${VERSION}-macOS-arm64.pkg" release/
+          cp Keylo_Technical_Documentation_v3.pdf release/
           cp README-macOS.txt release/README.txt
-          ditto -c -k --sequesterRsrc --keepParent release Keylo-${{ github.ref_name }}-macOS-arm64.zip
+          ditto -c -k --sequesterRsrc --keepParent release \
+            "Keylo-${VERSION}-macOS-arm64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -93,14 +115,37 @@ jobs:
           $windir = "build\Keylo_artefacts\Release\VST3\Keylo.vst3\Contents\x86_64-win"
           Copy-Item "ort\lib\onnxruntime.dll" $windir
 
-      - name: Package
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build Windows installer
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path release
-          Copy-Item -Recurse "build\Keylo_artefacts\Release\VST3\Keylo.vst3" release\
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+
+          # Stage all files the NSIS script needs
+          $staging = "$PWD\nsis_staging"
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Copy-Item -Recurse "build\Keylo_artefacts\Release\VST3\Keylo.vst3" "$staging\Keylo.vst3"
+          Copy-Item "Keylo_Technical_Documentation_v3.pdf" "$staging\"
+          Copy-Item "README-Windows.txt" "$staging\README.txt"
+
+          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          & $nsis "/DVERSION=$ver" "/DSTAGING=$staging" "installer\windows\keylo.nsi"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package Windows ZIP
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+
+          New-Item -ItemType Directory -Path release | Out-Null
+          Move-Item "Keylo-$ver-Windows-x64-Setup.exe" release\
+          Copy-Item "Keylo_Technical_Documentation_v3.pdf" release\
           Copy-Item "README-Windows.txt" release\README.txt
-          $name = "Keylo-${{ github.ref_name }}-Windows-x64.zip"
-          Compress-Archive -Path release\* -DestinationPath $name
+          Compress-Archive -Path release\* -DestinationPath "Keylo-$tag-Windows-x64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
