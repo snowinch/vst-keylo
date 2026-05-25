@@ -13,16 +13,23 @@ Unicode True
 !define DOCS_DIR        "$DOCUMENTS\Keylo"
 !define UNINSTALL_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\Keylo"
 
+!include "MUI2.nsh"
+
 Name "${PRODUCT_NAME} ${VERSION}"
 OutFile "Keylo-${VERSION}-Windows-x64-Setup.exe"
 InstallDir "${VST3_DIR}"
 RequestExecutionLevel admin
 SetCompressor lzma
 
-Page welcome
-Page directory
-Page instfiles
-Page finish
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
 
 Section "VST3 Plugin" SecVST3
     SectionIn RO
