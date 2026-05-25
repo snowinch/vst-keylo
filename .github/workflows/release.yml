@@ -2,13 +2,35 @@ name: Build Keylo
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
 
 jobs:
+  # ── Determine next version ────────────────────────────────────────────────────
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      ver: ${{ steps.bump.outputs.ver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          LATEST=$(git tag --list 'v*' --sort=-version:refname | head -1)
+          if [ -z "$LATEST" ]; then LATEST="v0.0.0"; fi
+          IFS='.' read -r major minor patch <<< "${LATEST#v}"
+          NEXT="v${major}.${minor}.$((patch + 1))"
+          echo "tag=$NEXT" >> $GITHUB_OUTPUT
+          echo "ver=${NEXT#v}" >> $GITHUB_OUTPUT
+          echo "Next version: $NEXT (was $LATEST)"
+
   # ── macOS (Apple Silicon arm64) ──────────────────────────────────────────────
   build-macos:
+    needs: version
     runs-on: macos-14
 
     steps:
@@ -16,32 +38,52 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install ONNX Runtime
-        run: brew install onnxruntime
+      - name: Download ONNX Runtime (macOS arm64)
+        run: |
+          ORT_VER="1.19.2"
+          curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VER}/onnxruntime-osx-arm64-${ORT_VER}.tgz" \
+            | tar xz
+          mv "onnxruntime-osx-arm64-${ORT_VER}" ort
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DORT_ROOT=${{ github.workspace }}/ort"
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Bundle ORT dylib + sign
         run: |
-          ORT_REAL=$(realpath /opt/homebrew/opt/onnxruntime/lib/libonnxruntime.1.dylib)
-          ORT_LINK=/opt/homebrew/opt/onnxruntime/lib/libonnxruntime.1.dylib
+          ORT_DYLIB="ort/lib/libonnxruntime.1.19.2.dylib"
           VST3="build/Keylo_artefacts/Release/VST3/Keylo.vst3"
           AU="build/Keylo_artefacts/Release/AU/Keylo.component"
 
           mkdir -p "$VST3/Contents/Frameworks" "$AU/Contents/Frameworks"
-          cp "$ORT_REAL" "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
-          cp "$ORT_REAL" "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
+          cp "$ORT_DYLIB" "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
+          cp "$ORT_DYLIB" "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
 
-          install_name_tool -change "$ORT_LINK" \
+          # Fix dylib's own install name so it matches the bundle path
+          install_name_tool -id @loader_path/../Frameworks/libonnxruntime.1.dylib \
+            "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
+          install_name_tool -id @loader_path/../Frameworks/libonnxruntime.1.dylib \
+            "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
+
+          # Patch the exact ORT reference in each binary
+          VST3_ORT_DEP=$(otool -L "$VST3/Contents/MacOS/Keylo" | awk '/onnxruntime/{print $1}')
+          AU_ORT_DEP=$(otool -L "$AU/Contents/MacOS/Keylo" | awk '/onnxruntime/{print $1}')
+          echo "VST3 ORT dep: $VST3_ORT_DEP"
+          echo "AU   ORT dep: $AU_ORT_DEP"
+
+          install_name_tool -change "$VST3_ORT_DEP" \
             @loader_path/../Frameworks/libonnxruntime.1.dylib \
             "$VST3/Contents/MacOS/Keylo"
-          install_name_tool -change "$ORT_LINK" \
+          install_name_tool -change "$AU_ORT_DEP" \
             @loader_path/../Frameworks/libonnxruntime.1.dylib \
             "$AU/Contents/MacOS/Keylo"
+
+          echo "--- patched VST3 ---"
+          otool -L "$VST3/Contents/MacOS/Keylo" | grep onnxruntime
+          echo "--- patched AU ---"
+          otool -L "$AU/Contents/MacOS/Keylo" | grep onnxruntime
 
           codesign --force --sign - "$VST3/Contents/Frameworks/libonnxruntime.1.dylib"
           codesign --force --sign - "$AU/Contents/Frameworks/libonnxruntime.1.dylib"
@@ -52,10 +94,9 @@ jobs:
 
       - name: Build macOS .pkg installer
         run: |
-          VERSION="${{ github.ref_name }}"
-          VER="${VERSION#v}"
+          TAG="${{ needs.version.outputs.tag }}"
+          VER="${{ needs.version.outputs.ver }}"
 
-          # Single root with both plugins
           mkdir -p pkg-root/Library/Audio/Plug-Ins/VST3
           mkdir -p pkg-root/Library/Audio/Plug-Ins/Components
           cp -r build/Keylo_artefacts/Release/VST3/Keylo.vst3 \
@@ -68,17 +109,17 @@ jobs:
             --identifier com.snowinch.keylo \
             --version "$VER" \
             --install-location / \
-            "Keylo-${VERSION}-macOS-arm64.pkg"
+            "Keylo-${TAG}-macOS-arm64.pkg"
 
       - name: Package macOS ZIP
         run: |
-          VERSION="${{ github.ref_name }}"
+          TAG="${{ needs.version.outputs.tag }}"
           mkdir release
-          cp "Keylo-${VERSION}-macOS-arm64.pkg" release/
+          cp "Keylo-${TAG}-macOS-arm64.pkg" release/
           cp Keylo_Technical_Documentation_v3.pdf release/
           cp README-macOS.txt release/README.txt
           ditto -c -k --sequesterRsrc --keepParent release \
-            "Keylo-${VERSION}-macOS-arm64.zip"
+            "Keylo-${TAG}-macOS-arm64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -87,6 +128,7 @@ jobs:
 
   # ── Windows (x64) ────────────────────────────────────────────────────────────
   build-windows:
+    needs: version
     runs-on: windows-latest
 
     steps:
@@ -121,10 +163,9 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          $ver = $tag -replace '^v', ''
+          $tag = "${{ needs.version.outputs.tag }}"
+          $ver = "${{ needs.version.outputs.ver }}"
 
-          # Stage all files the NSIS script needs
           $staging = "$PWD\nsis_staging"
           New-Item -ItemType Directory -Path $staging | Out-Null
           Copy-Item -Recurse "build\Keylo_artefacts\Release\VST3\Keylo.vst3" "$staging\Keylo.vst3"
@@ -139,8 +180,8 @@ jobs:
       - name: Package Windows ZIP
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          $ver = $tag -replace '^v', ''
+          $tag = "${{ needs.version.outputs.tag }}"
+          $ver = "${{ needs.version.outputs.ver }}"
 
           New-Item -ItemType Directory -Path release | Out-Null
           Move-Item "Keylo-$ver-Windows-x64-Setup.exe" release\
@@ -153,11 +194,10 @@ jobs:
           name: Keylo-Windows-x64
           path: Keylo-*-Windows-x64.zip
 
-  # ── GitHub Release (only on tag push) ────────────────────────────────────────
+  # ── GitHub Release ────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows]
+    needs: [version, build-macos, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -169,6 +209,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Keylo ${{ needs.version.outputs.tag }}
           files: |
             Keylo-*-macOS-arm64.zip
             Keylo-*-Windows-x64.zip
