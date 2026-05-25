@@ -131,8 +131,9 @@ jobs:
           Copy-Item "Keylo_Technical_Documentation_v3.pdf" "$staging\"
           Copy-Item "README-Windows.txt" "$staging\README.txt"
 
+          $outfile = "$PWD\Keylo-$ver-Windows-x64-Setup.exe"
           $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
-          & $nsis "/DVERSION=$ver" "/DSTAGING=$staging" "installer\windows\keylo.nsi"
+          & $nsis "/DVERSION=$ver" "/DSTAGING=$staging" "/DOUTFILE=$outfile" "installer\windows\keylo.nsi"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package Windows ZIP

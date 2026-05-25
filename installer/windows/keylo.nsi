@@ -16,7 +16,10 @@ Unicode True
 !include "MUI2.nsh"
 
 Name "${PRODUCT_NAME} ${VERSION}"
-OutFile "Keylo-${VERSION}-Windows-x64-Setup.exe"
+!ifndef OUTFILE
+  !define OUTFILE "Keylo-${VERSION}-Windows-x64-Setup.exe"
+!endif
+OutFile "${OUTFILE}"
 InstallDir "${VST3_DIR}"
 RequestExecutionLevel admin
 SetCompressor lzma
