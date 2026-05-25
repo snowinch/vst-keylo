@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <string>
 
 /** Result from S-KEY ONNX inference. */
 struct SkeyResult

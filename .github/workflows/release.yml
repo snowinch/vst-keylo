@@ -40,7 +40,7 @@ jobs:
 
       - name: Download ONNX Runtime (macOS arm64)
         run: |
-          ORT_VER="1.20.1"
+          ORT_VER="1.26.0"
           curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VER}/onnxruntime-osx-arm64-${ORT_VER}.tgz" \
             | tar xz
           mv "onnxruntime-osx-arm64-${ORT_VER}" ort
@@ -53,7 +53,7 @@ jobs:
 
       - name: Bundle ORT dylib + sign
         run: |
-          ORT_DYLIB="ort/lib/libonnxruntime.1.20.1.dylib"
+          ORT_DYLIB="ort/lib/libonnxruntime.1.26.0.dylib"
           VST3="build/Keylo_artefacts/Release/VST3/Keylo.vst3"
           AU="build/Keylo_artefacts/Release/AU/Keylo.component"
 
@@ -139,7 +139,7 @@ jobs:
       - name: Download ONNX Runtime (Windows x64)
         shell: pwsh
         run: |
-          $ver = "1.20.1"
+          $ver = "1.26.0"
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-$ver.zip"
           Invoke-WebRequest -Uri $url -OutFile ort.zip
           Expand-Archive ort.zip -DestinationPath .

@@ -80,11 +80,10 @@ SkeyInference::SkeyInference (const void* modelData, size_t modelSize)
 {
     try
     {
-        m_impl  = std::make_unique<Impl> (modelData, modelSize);
+        m_impl   = std::make_unique<Impl> (modelData, modelSize);
         m_loaded = true;
     }
-    catch (const std::exception&) { m_loaded = false; }
-    catch (...)                   { m_loaded = false; }
+    catch (...) { m_loaded = false; }
 }
 
 SkeyInference::~SkeyInference() = default;

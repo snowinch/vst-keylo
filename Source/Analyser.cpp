@@ -356,9 +356,6 @@ void Analyser::runAnalysis()
     //                          with NaturalMinor / Major, lower confidence.
     if (skey && skey->isLoaded())
     {
-        // Split 12s buffer into two 6s windows, run S-KEY on each.
-        // If roots agree  → high confidence (averaged).
-        // If roots differ → use the higher-confidence window, penalised.
         constexpr double kWinSecs = 6.0;
         int winSamples = (int)(kWinSecs * snapSr);
 
@@ -369,21 +366,17 @@ void Analyser::runAnalysis()
         if (n > winSamples)
             res2 = skey->predict (linear.data() + winSamples, n - winSamples, snapSr);
 
-        // Pick final result
         SkeyResult skeyFinal {};
         if (res1.root >= 0 && res2.root >= 0)
         {
             if (res1.root == res2.root && res1.isMinor == res2.isMinor)
             {
-                // Both windows agree — strong signal
                 skeyFinal.root       = res1.root;
                 skeyFinal.isMinor    = res1.isMinor;
-                skeyFinal.confidence = (res1.confidence + res2.confidence) * 0.5f * 1.2f; // boost
-                skeyFinal.confidence = std::min (skeyFinal.confidence, 1.0f);
+                skeyFinal.confidence = std::min ((res1.confidence + res2.confidence) * 0.5f * 1.2f, 1.0f);
             }
             else
             {
-                // Windows disagree — take higher confidence, penalise
                 const SkeyResult& best = (res1.confidence >= res2.confidence) ? res1 : res2;
                 skeyFinal.root       = best.root;
                 skeyFinal.isMinor    = best.isMinor;
