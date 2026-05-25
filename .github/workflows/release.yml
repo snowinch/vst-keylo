@@ -55,6 +55,7 @@ jobs:
           mkdir release
           cp -r build/Keylo_artefacts/Release/VST3/Keylo.vst3 release/
           cp -r build/Keylo_artefacts/Release/AU/Keylo.component release/
+          cp README.txt release/
           ditto -c -k --sequesterRsrc --keepParent release Keylo-${{ github.ref_name }}-macOS-arm64.zip
 
       - uses: actions/upload-artifact@v4
@@ -95,9 +96,11 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $src = "build\Keylo_artefacts\Release\VST3\Keylo.vst3"
+          New-Item -ItemType Directory -Path release
+          Copy-Item -Recurse "build\Keylo_artefacts\Release\VST3\Keylo.vst3" release\
+          Copy-Item "README.txt" release\
           $name = "Keylo-${{ github.ref_name }}-Windows-x64.zip"
-          Compress-Archive -Path $src -DestinationPath $name
+          Compress-Archive -Path release\* -DestinationPath $name
 
       - uses: actions/upload-artifact@v4
         with:
