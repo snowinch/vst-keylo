@@ -5,11 +5,11 @@ by Snowinch — snowinch.com
 ─────────────────────────────────────
 REQUIREMENTS
 ─────────────────────────────────────
-macOS: macOS 11 or later, Apple Silicon (M1/M2/M3/M4)
-Windows: Windows 10/11, 64-bit
+macOS 11 or later, Apple Silicon (M1/M2/M3/M4)
+VST3 or AU compatible DAW (Ableton, FL Studio, Logic, etc.)
 
 ─────────────────────────────────────
-INSTALL — macOS
+INSTALL
 ─────────────────────────────────────
 VST3:
   Copy Keylo.vst3 → ~/Library/Audio/Plug-Ins/VST3/
@@ -19,18 +19,16 @@ AU:
 
 Restart your DAW after installing.
 
-GATEKEEPER — run once in Terminal after installing:
+─────────────────────────────────────
+FIRST LAUNCH — GATEKEEPER
+─────────────────────────────────────
+macOS will block the plugin on first use because it is not notarized.
+Run these commands once in Terminal after installing:
 
   xattr -rd com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Keylo.vst3
   xattr -rd com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Keylo.component
 
-─────────────────────────────────────
-INSTALL — Windows
-─────────────────────────────────────
-VST3:
-  Copy Keylo.vst3 → C:\Program Files\Common Files\VST3\
-
-Restart your DAW after installing.
+Then restart your DAW.
 
 ─────────────────────────────────────
 HOW TO USE
