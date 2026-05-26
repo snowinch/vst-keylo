@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "Analyser.h"
+#include <memory>
 
 class KeyloAudioProcessor : public juce::AudioProcessor
 {
@@ -31,18 +32,18 @@ public:
     void getStateInformation(juce::MemoryBlock&) override {}
     void setStateInformation(const void*, int)   override {}
 
-    Analyser& getAnalyser() { return analyser; }
+    Analyser& getAnalyser() { return *analyser; }
 
-    void         setGenre(GenreProfile g)   { analyser.setGenre(g); }
-    GenreProfile getGenre() const           { return analyser.getGenre(); }
+    void         setGenre(GenreProfile g)   { analyser->setGenre(g); }
+    GenreProfile getGenre() const           { return analyser->getGenre(); }
 
-    void      setInputMode(InputMode m)  { analyser.setInputMode(m); }
-    InputMode getInputMode() const       { return analyser.getInputMode(); }
+    void      setInputMode(InputMode m)  { analyser->setInputMode(m); }
+    InputMode getInputMode() const       { return analyser->getInputMode(); }
 
-    void setCamelotDisplay(bool on) { analyser.setCamelotDisplay(on); }
-    bool getCamelotDisplay() const  { return analyser.getCamelotDisplay(); }
+    void setCamelotDisplay(bool on) { analyser->setCamelotDisplay(on); }
+    bool getCamelotDisplay() const  { return analyser->getCamelotDisplay(); }
 
 private:
-    Analyser analyser;
+    std::unique_ptr<Analyser> analyser;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KeyloAudioProcessor)
 };

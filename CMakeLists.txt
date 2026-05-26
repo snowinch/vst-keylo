@@ -185,6 +185,14 @@ target_link_libraries(Keylo PRIVATE
     juce::juce_recommended_warning_flags
 )
 
+# Windows: delay-load onnxruntime.dll so the host can load Keylo.vst3 even
+# before onnxruntime.dll is on the search path. We load it explicitly at
+# runtime via LoadLibraryW with the full path (see PluginProcessor.cpp).
+if(WIN32)
+    target_link_options(Keylo PRIVATE /DELAYLOAD:onnxruntime.dll)
+    target_link_libraries(Keylo PRIVATE delayimp)
+endif()
+
 # ── Test executable (no JUCE — pure DSP + aubio) ──────────────────────────────
 add_executable(KeyloTest
     tests/test_key.cpp
