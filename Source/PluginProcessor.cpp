@@ -11,17 +11,50 @@ KeyloAudioProcessor::KeyloAudioProcessor()
         .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
 #if defined(_WIN32)
-    // onnxruntime.dll is bundled in the same directory as Keylo.vst3.
-    // Windows does NOT search the loaded DLL's directory by default, so hosts
-    // (FL Studio, Ableton, etc.) cannot find it via normal DLL search order.
-    // We use delay-loading (CMakeLists /DELAYLOAD) so the host can load
-    // Keylo.vst3 without needing onnxruntime.dll upfront, then load it
-    // explicitly with a full path before creating the Analyser (which
-    // triggers the first ORT call).
-    auto pluginDir = juce::File::getSpecialLocation(
-        juce::File::currentApplicationFile).getParentDirectory();
-    auto ortPath = pluginDir.getChildFile("onnxruntime.dll");
-    LoadLibraryW(ortPath.getFullPathName().toWideCharPointer());
+    // onnxruntime.dll is bundled alongside Keylo.vst3 (DLL) in x86_64-win/.
+    // Windows does NOT search the loaded DLL's own directory, so hosts can't
+    // find it via normal DLL search order.
+    //
+    // We use /DELAYLOAD so onnxruntime.dll is NOT resolved at DLL load time,
+    // then load it explicitly here — before make_unique<Analyser>() which
+    // triggers the first ORT call.
+    //
+    // GetModuleHandleExW(FROM_ADDRESS) is used instead of
+    // juce::File::currentApplicationFile because the JUCE API may return the
+    // host EXE path on some Windows DAWs. FROM_ADDRESS is guaranteed to return
+    // the HMODULE of the DLL containing this code (Keylo.vst3), regardless
+    // of what the host process is.
+    {
+        HMODULE hSelf = nullptr;
+        BOOL ok = GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&createPluginFilter),  // any addr in this DLL
+            &hSelf);
+
+        if (ok && hSelf != nullptr)
+        {
+            wchar_t dllPath[MAX_PATH] = {};
+            DWORD len = GetModuleFileNameW(hSelf, dllPath, MAX_PATH);
+            if (len > 0 && len < MAX_PATH)
+            {
+                // Strip filename → directory path (with trailing backslash)
+                wchar_t* lastSlash = wcsrchr(dllPath, L'\\');
+                if (lastSlash != nullptr)
+                {
+                    *(lastSlash + 1) = L'\0';
+                    // Also add our directory to the DLL search path so any
+                    // sub-dependencies of onnxruntime.dll resolve correctly.
+                    SetDllDirectoryW(dllPath);
+
+                    wchar_t ortPath[MAX_PATH] = {};
+                    wcsncpy_s(ortPath, MAX_PATH, dllPath, _TRUNCATE);
+                    wcsncat_s(ortPath, MAX_PATH, L"onnxruntime.dll", _TRUNCATE);
+                    LoadLibraryW(ortPath);
+                }
+            }
+        }
+    }
 #endif
 
     analyser = std::make_unique<Analyser>();
