@@ -42,7 +42,8 @@ Section "VST3 Plugin" SecVST3
 
     SetOutPath "$INSTDIR\Keylo.vst3\Contents\x86_64-win"
     File "${STAGING}\Keylo.vst3\Contents\x86_64-win\Keylo.vst3"
-    File "${STAGING}\Keylo.vst3\Contents\x86_64-win\onnxruntime.dll"
+    ; Install all ORT DLLs (onnxruntime.dll + onnxruntime_providers_shared.dll + any others)
+    File "${STAGING}\Keylo.vst3\Contents\x86_64-win\*.dll"
 SectionEnd
 
 Section "Documentation" SecDocs
@@ -61,7 +62,7 @@ SectionEnd
 
 Section "Uninstall"
     Delete "$INSTDIR\Keylo.vst3\Contents\x86_64-win\Keylo.vst3"
-    Delete "$INSTDIR\Keylo.vst3\Contents\x86_64-win\onnxruntime.dll"
+    Delete "$INSTDIR\Keylo.vst3\Contents\x86_64-win\*.dll"
     Delete "$INSTDIR\Keylo.vst3\Contents\Resources\moduleinfo.json"
     RMDir  "$INSTDIR\Keylo.vst3\Contents\x86_64-win"
     RMDir  "$INSTDIR\Keylo.vst3\Contents\Resources"

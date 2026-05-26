@@ -151,11 +151,16 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Bundle ORT DLL
+      - name: Bundle ORT DLLs
         shell: pwsh
         run: |
           $windir = "build\Keylo_artefacts\Release\VST3\Keylo.vst3\Contents\x86_64-win"
-          Copy-Item "ort\lib\onnxruntime.dll" $windir
+          # Copy ALL ORT DLLs — onnxruntime.dll has onnxruntime_providers_shared.dll
+          # as an implicit dependency; missing it causes crash on first ORT call.
+          Get-ChildItem "ort\lib\*.dll" | ForEach-Object {
+            Write-Host "Bundling ORT DLL: $($_.Name)"
+            Copy-Item $_.FullName $windir
+          }
 
       - name: Install NSIS
         run: choco install nsis -y
